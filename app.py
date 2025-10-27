@@ -1,70 +1,74 @@
 import gradio as gr
-import PyMuPDF  # Correct library import
+import fitz  # PyMuPDF
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-
-# -------------------------------------------
-# 🔹 Function: Extract text from uploaded PDF
-# -------------------------------------------
+# ---------------------------------------------------------
+# 🔹 Function: Extract text from a PDF resume
+# ---------------------------------------------------------
 def extract_text_from_pdf(pdf_file):
-    text = ""
-    with open(pdf_file, "rb") as f:
-        pdf = PyMuPDF.open(f)
-        for page in pdf:
-            text += page.get_text("text")
-    return text
-
-
-# -------------------------------------------
-# 🔹 Function: Analyze resume vs job description
-# -------------------------------------------
-def analyze_resume(resume_pdf, job_description):
     try:
-        # Extract text from the uploaded resume
-        resume_text = extract_text_from_pdf(resume_pdf.name)
+        # Handle both file path and uploaded file objects
+        if hasattr(pdf_file, "name"):
+            path = pdf_file.name  # for Gradio NamedString
+        else:
+            path = pdf_file  # fallback for file paths
 
-        # Combine resume and job description for vectorization
-        texts = [resume_text, job_description]
-        vectorizer = TfidfVectorizer(stop_words="english")
-        tfidf_matrix = vectorizer.fit_transform(texts)
-
-        # Calculate similarity (cosine similarity)
-        similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0] * 100
-
-        # Identify missing keywords
-        resume_words = set(resume_text.lower().split())
-        job_words = set(job_description.lower().split())
-        missing_keywords = job_words - resume_words
-        missing_keywords = ", ".join(list(missing_keywords)[:10])  # limit to 10
-
-        result = f"✅ **Match Score:** {similarity:.2f}%\n\n❌ **Missing Keywords:** {missing_keywords if missing_keywords else 'None'}"
-        return result
-
+        text = ""
+        with fitz.open(path) as doc:
+            for page in doc:
+                text += page.get_text()
+        return text
     except Exception as e:
-        return f"⚠️ Error: {str(e)}"
+        return f"Error reading PDF: {e}"
 
+# ---------------------------------------------------------
+# 🔹 Function: Compute similarity between resume & job description
+# ---------------------------------------------------------
+def match_resume_to_job(resume_text, job_description):
+    vectorizer = TfidfVectorizer()
+    tfidf = vectorizer.fit_transform([resume_text, job_description])
+    similarity = cosine_similarity(tfidf[0:1], tfidf[1:2])[0][0]
+    return round(similarity * 100, 2)
 
-# -------------------------------------------
-# 🔹 Gradio Interface
-# -------------------------------------------
-title = "🧠 Smart Resume Analyzer"
-description = "Upload your resume (PDF) and paste a job description to see how well they match!"
+# ---------------------------------------------------------
+# 🔹 Main Gradio interface function
+# ---------------------------------------------------------
+def analyze_resume(pdf, job_description):
+    try:
+        resume_text = extract_text_from_pdf(pdf)
+        if "Error" in resume_text:
+            return f"❌ {resume_text}"
 
+        score = match_resume_to_job(resume_text, job_description)
+        feedback = f"✅ Resume matches the job description by **{score}%**"
+        if score < 50:
+            feedback += "\n💡 Try adding more relevant keywords or skills."
+        elif score < 75:
+            feedback += "\n⚙️ Good match, but you can tailor your resume more."
+        else:
+            feedback += "\n🔥 Excellent! Your resume aligns very well."
+        return feedback
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
+
+# ---------------------------------------------------------
+# 🔹 Gradio UI
+# ---------------------------------------------------------
 interface = gr.Interface(
     fn=analyze_resume,
     inputs=[
-        gr.File(label="Upload Resume (PDF)"),
-        gr.Textbox(label="Paste Job Description", lines=8, placeholder="Paste job description here..."),
+        gr.File(label="📄 Upload Your Resume (PDF)"),
+        gr.Textbox(label="💼 Paste Job Description Here")
     ],
-    outputs=gr.Markdown(label="Results"),
-    title=title,
-    description=description,
+    outputs="markdown",
+    title="Smart Resume Analyzer",
+    description="Upload your resume and paste a job description to see how well they match."
 )
 
-# -------------------------------------------
-# 🔹 Launch the App
-# -------------------------------------------
+# ---------------------------------------------------------
+# 🔹 Launch App
+# ---------------------------------------------------------
 if __name__ == "__main__":
-    interface.launch(share=True)
+    interface.launch()
