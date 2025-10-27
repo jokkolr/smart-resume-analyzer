@@ -1,5 +1,4 @@
 gradio
-fitz
+PyMuPDF
 scikit-learn
 numpy
-PyMuPDF
